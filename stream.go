@@ -49,6 +49,13 @@ func newStream(id string, buffSize int, replay, isAutoStream bool, onSubscribe, 
 
 func (str *Stream) run() {
 	go func(str *Stream) {
+		subMap := make(map[*Subscriber]struct{})
+		updateMap := func() {
+			subMap = make(map[*Subscriber]struct{}, len(str.subscribers))
+			for i := range str.subscribers {
+				subMap[str.subscribers[i]] = struct{}{}
+			}
+		}
 		for {
 			select {
 			// Add new subscriber
@@ -57,6 +64,7 @@ func (str *Stream) run() {
 				if str.AutoReplay {
 					str.Eventlog.Replay(subscriber)
 				}
+				updateMap()
 
 			// Remove closed subscriber
 			case subscriber := <-str.deregister:
@@ -68,20 +76,30 @@ func (str *Stream) run() {
 				if str.OnUnsubscribe != nil {
 					go str.OnUnsubscribe(str.ID, subscriber)
 				}
+				updateMap()
 
 			// Publish event to subscribers
 			case event := <-str.event:
 				if str.AutoReplay {
 					str.Eventlog.Add(event)
 				}
-				for i := range str.subscribers {
-					str.subscribers[i].connection <- event
+				if len(event.SubsWhitelist) > 0 { // sending whitelist
+					for _, sub := range event.SubsWhitelist {
+						if _, ok := subMap[sub]; ok {
+							sub.connection <- event
+						}
+					}
+				} else {
+					for i := range str.subscribers {
+						str.subscribers[i].connection <- event
+					}
 				}
 
 			// Shutdown if the server closes
 			case <-str.quit:
 				// remove connections
 				str.removeAllSubscribers()
+				updateMap()
 				return
 			}
 		}
