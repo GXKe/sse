@@ -19,6 +19,7 @@ type Stream struct {
 	register        chan *Subscriber
 	deregister      chan *Subscriber
 	subscribers     []*Subscriber
+	subsMap         map[*Subscriber]struct{}
 	Eventlog        EventLog
 	subscriberCount int32
 	// Enables replaying of eventlog to newly added subscribers
@@ -36,6 +37,7 @@ func newStream(id string, buffSize int, replay, isAutoStream bool, onSubscribe, 
 		ID:            id,
 		AutoReplay:    replay,
 		subscribers:   make([]*Subscriber, 0),
+		subsMap:       make(map[*Subscriber]struct{}),
 		isAutoStream:  isAutoStream,
 		register:      make(chan *Subscriber),
 		deregister:    make(chan *Subscriber),
@@ -54,6 +56,7 @@ func (str *Stream) run() {
 			// Add new subscriber
 			case subscriber := <-str.register:
 				str.subscribers = append(str.subscribers, subscriber)
+				str.subsMap[subscriber] = struct{}{}
 				if str.AutoReplay {
 					str.Eventlog.Replay(subscriber)
 				}
@@ -74,8 +77,16 @@ func (str *Stream) run() {
 				if str.AutoReplay {
 					str.Eventlog.Add(event)
 				}
-				for i := range str.subscribers {
-					str.subscribers[i].connection <- event
+				if len(event.SubsWhitelist) > 0 { // sending whitelist
+					for i := range event.SubsWhitelist {
+						if _, ok := str.subsMap[event.SubsWhitelist[i]]; ok {
+							event.SubsWhitelist[i].connection <- event
+						}
+					}
+				} else {
+					for i := range str.subscribers {
+						str.subscribers[i].connection <- event
+					}
 				}
 
 			// Shutdown if the server closes
@@ -133,6 +144,7 @@ func (str *Stream) removeSubscriber(i int) {
 		str.subscribers[i].removed <- struct{}{}
 		close(str.subscribers[i].removed)
 	}
+	delete(str.subsMap, str.subscribers[i])
 	str.subscribers = append(str.subscribers[:i], str.subscribers[i+1:]...)
 }
 
@@ -145,6 +157,7 @@ func (str *Stream) removeAllSubscribers() {
 		}
 	}
 	atomic.StoreInt32(&str.subscriberCount, 0)
+	str.subsMap = make(map[*Subscriber]struct{})
 	str.subscribers = str.subscribers[:0]
 }
 

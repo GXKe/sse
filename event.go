@@ -14,12 +14,13 @@ import (
 
 // Event holds all of the event source fields
 type Event struct {
-	timestamp time.Time
-	ID        []byte
-	Data      []byte
-	Event     []byte
-	Retry     []byte
-	Comment   []byte
+	SubsWhitelist []*Subscriber
+	timestamp     time.Time
+	ID            []byte
+	Data          []byte
+	Event         []byte
+	Retry         []byte
+	Comment       []byte
 }
 
 func (e *Event) hasContent() bool {
