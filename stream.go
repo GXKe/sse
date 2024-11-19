@@ -10,6 +10,8 @@ import (
 	"sync/atomic"
 )
 
+const DefaultConnectionBufferSize = 1024
+
 // Stream ...
 type Stream struct {
 	ID              string
@@ -83,15 +85,18 @@ func (str *Stream) run() {
 				if str.AutoReplay {
 					str.Eventlog.Add(event)
 				}
+				sendSubs := str.subscribers
 				if len(event.SubsWhitelist) > 0 { // sending whitelist
+					sendSubs = nil
 					for _, sub := range event.SubsWhitelist {
 						if _, ok := subMap[sub]; ok {
-							sub.connection <- event
+							sendSubs = append(sendSubs, sub)
 						}
 					}
-				} else {
-					for i := range str.subscribers {
-						str.subscribers[i].connection <- event
+				}
+				for _, sub := range sendSubs {
+					if len(sub.connection) < DefaultConnectionBufferSize-20 { // 假死的连接不再发送。内存回收待优化
+						sub.connection <- event
 					}
 				}
 
@@ -127,7 +132,7 @@ func (str *Stream) addSubscriber(eventid int, url *url.URL) *Subscriber {
 	sub := &Subscriber{
 		eventid:    eventid,
 		quit:       str.deregister,
-		connection: make(chan *Event, 64),
+		connection: make(chan *Event, DefaultConnectionBufferSize),
 		URL:        url,
 	}
 
