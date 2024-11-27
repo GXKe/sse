@@ -5,6 +5,7 @@
 package sse
 
 import (
+	"context"
 	"net/url"
 	"sync"
 	"sync/atomic"
@@ -97,6 +98,11 @@ func (str *Stream) run() {
 				for _, sub := range sendSubs {
 					if len(sub.connection) < DefaultConnectionBufferSize-20 { // 假死的连接不再发送。内存回收待优化
 						sub.connection <- event
+					} else {
+						if sub.cancelRequest != nil {
+							sub.cancelRequest()
+							sub.cancelRequest = nil
+						}
 					}
 				}
 
@@ -127,13 +133,14 @@ func (str *Stream) getSubIndex(sub *Subscriber) int {
 }
 
 // addSubscriber will create a new subscriber on a stream
-func (str *Stream) addSubscriber(eventid int, url *url.URL) *Subscriber {
+func (str *Stream) addSubscriber(eventid int, url *url.URL, cancelRequest context.CancelFunc) *Subscriber {
 	atomic.AddInt32(&str.subscriberCount, 1)
 	sub := &Subscriber{
-		eventid:    eventid,
-		quit:       str.deregister,
-		connection: make(chan *Event, DefaultConnectionBufferSize),
-		URL:        url,
+		eventid:       eventid,
+		quit:          str.deregister,
+		connection:    make(chan *Event, DefaultConnectionBufferSize),
+		URL:           url,
+		cancelRequest: cancelRequest,
 	}
 
 	if str.isAutoStream {

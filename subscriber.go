@@ -4,7 +4,10 @@
 
 package sse
 
-import "net/url"
+import (
+	"context"
+	"net/url"
+)
 
 // Subscriber ...
 type Subscriber struct {
@@ -13,6 +16,8 @@ type Subscriber struct {
 	removed    chan struct{}
 	eventid    int
 	URL        *url.URL
+
+	cancelRequest context.CancelFunc
 }
 
 // Close will let the stream know that the clients connection has terminated

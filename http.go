@@ -6,6 +6,7 @@ package sse
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -57,16 +58,20 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create the stream subscriber
-	sub := stream.addSubscriber(eventid, r.URL)
+	exited := false
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	sub := stream.addSubscriber(eventid, r.URL, cancel)
 
 	go func() {
-		<-r.Context().Done()
+		<-ctx.Done()
 
 		sub.close()
 
 		if s.AutoStream && !s.AutoReplay && stream.getSubscriberCount() == 0 {
 			s.RemoveStream(streamID)
 		}
+		exited = true
 	}()
 
 	w.WriteHeader(http.StatusOK)
@@ -74,6 +79,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Push events to client
 	for ev := range sub.connection {
+		if exited {
+			break
+		}
+
 		// If the data buffer is an empty string abort.
 		if len(ev.Data) == 0 && len(ev.Comment) == 0 {
 			break
